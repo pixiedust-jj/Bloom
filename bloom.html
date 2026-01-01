@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloom List | Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bloom-pink: #ff85a1;
+            --bloom-purple: #a855f7;
+            --bloom-green: #10b981;
+            --glass: rgba(255, 255, 255, 0.03);
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: #0a0708;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .sidebar {
+            background: rgba(15, 10, 12, 0.9);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 133, 161, 0.15);
+        }
+        
+        /* Centered Board Layout */
+        .board-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Colored Borders for Columns */
+        .kanban-column {
+            background: var(--glass);
+            border-radius: 28px;
+            transition: all 0.3s ease;
+            height: fit-content;
+        }
+        #todo { border: 1px solid rgba(255, 133, 161, 0.3); }
+        #progress { border: 1px solid rgba(168, 85, 247, 0.3); }
+        #done { border: 1px solid rgba(16, 185, 129, 0.3); }
+
+        .calendar-day {
+            aspect-ratio: 1/1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            transition: 0.2s;
+        }
+        .calendar-day:hover { background: rgba(255, 133, 161, 0.2); color: white; }
+        .calendar-day.selected { background: var(--bloom-pink); color: white !important; font-weight: bold; }
+        .calendar-day.today { border: 2px solid var(--bloom-pink); color: white; }
+        
+        .task-card {
+            background: #161113;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+        }
+        .task-card:hover { border-color: var(--bloom-pink); }
+        .drag-over { background: rgba(255, 255, 255, 0.05) !important; transform: scale(1.02); }
+        .dragging { opacity: 0.2; }
+
+        .badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-weight: 800;
+        }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+    </style>
+</head>
+<body class="flex flex-col lg:flex-row">
+
+    <aside class="sidebar w-full lg:w-80 h-screen sticky top-0 p-8 flex flex-col gap-6 overflow-y-auto z-10">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight text-white">Bloom <span class="text-[#ff85a1]">List</span></h1>
+            <p class="text-[10px] uppercase tracking-[0.3em] text-gray-500 mt-2 font-semibold">Curate Your Day</p>
+        </div>
+
+        <div class="space-y-4">
+            <div class="flex justify-between items-end">
+                <span class="text-sm font-semibold text-white">Calendar</span>
+                <span class="text-[10px] text-gray-500 font-bold uppercase">Jan 2026</span>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-2">
+                <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+            </div>
+            <div class="grid grid-cols-7 gap-1" id="calendarGrid"></div>
+        </div>
+
+        <div class="mt-2 p-6 rounded-3xl bg-white/[0.02] border border-white/5 flex flex-col items-center gap-4">
+            <div style="width: 100px; height: 100px;"><canvas id="taskChart"></canvas></div>
+            <div class="text-center">
+                <p id="selectedDateLabel" class="text-[10px] uppercase font-bold text-[#ff85a1] tracking-widest">Today</p>
+                <h4 id="statsText" class="text-2xl font-bold text-white">0%</h4>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 p-6 lg:p-12 overflow-y-auto">
+        <div class="board-container">
+            
+            <div class="flex flex-col items-center mb-16 max-w-2xl mx-auto">
+                <div class="flex w-full gap-4">
+                    <input id="taskInput" type="text" placeholder="Write a task for this date..." 
+                           class="flex-1 bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-[#ff85a1] transition text-white text-center">
+                    <button onclick="addTask()" class="bg-[#ff85a1] hover:bg-[#ff4d6d] text-white px-10 py-4 rounded-2xl font-bold transition shadow-lg shadow-pink-500/20">
+                        Add
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                
+                <div class="kanban-column p-6 flex flex-col" id="todo" ondrop="drop(event)" ondragover="allowDrop(event)" ondragleave="clearStyles(event)">
+                    <div class="flex justify-between items-center mb-8">
+                        <h3 class="text-gray-400 text-[11px] font-bold uppercase tracking-widest">To Do</h3>
+                        <span class="badge bg-pink-500/10 text-[#ff85a1]" id="count-todo">0</span>
+                    </div>
+                    <div class="task-list space-y-4 min-h-[450px]">
+                        <div id="instruction-card" class="task-card p-5 border-dashed border-pink-500/40" draggable="true" ondragstart="drag(event)">
+                            <p class="text-[10px] font-bold text-[#ff85a1] uppercase mb-1">Guide</p>
+                            <p class="text-sm text-gray-400 leading-relaxed">Drag cards between sections to track your daily bloom.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="kanban-column p-6 flex flex-col" id="progress" ondrop="drop(event)" ondragover="allowDrop(event)" ondragleave="clearStyles(event)">
+                    <div class="flex justify-between items-center mb-8">
+                        <h3 class="text-purple-400 text-[11px] font-bold uppercase tracking-widest">In Progress</h3>
+                        <span class="badge bg-purple-500/10 text-purple-400" id="count-progress">0</span>
+                    </div>
+                    <div class="task-list space-y-4 min-h-[450px]"></div>
+                </div>
+
+                <div class="kanban-column p-6 flex flex-col" id="done" ondrop="drop(event)" ondragover="allowDrop(event)" ondragleave="clearStyles(event)">
+                    <div class="flex justify-between items-center mb-8">
+                        <h3 class="text-emerald-400 text-[11px] font-bold uppercase tracking-widest">Completed</h3>
+                        <span class="badge bg-emerald-500/10 text-emerald-400" id="count-done">0</span>
+                    </div>
+                    <div class="task-list space-y-4 min-h-[450px]"></div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let myChart;
+        let selectedDate = "2026-01-01";
+        const taskDatabase = {};
+
+        function init() {
+            renderCalendar();
+            initChart();
+            updateMetrics();
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            const now = new Date();
+            const today = now.getDate();
+            for(let i = 1; i <= 31; i++) {
+                const dayStr = `2026-01-${i.toString().padStart(2, '0')}`;
+                const div = document.createElement('div');
+                div.className = `calendar-day ${i === 1 ? 'selected' : ''} ${i === today ? 'today' : ''}`;
+                div.innerText = i;
+                div.onclick = () => {
+                    document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('selected'));
+                    div.classList.add('selected');
+                    saveCurrentTasks();
+                    selectedDate = dayStr;
+                    document.getElementById('selectedDateLabel').innerText = i === today ? "Today" : `Jan ${i}`;
+                    loadDateTasks(dayStr);
+                };
+                grid.appendChild(div);
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('taskChart').getContext('2d');
+            myChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { datasets: [{ data: [1, 0, 0], backgroundColor: ['#251d20', '#a855f7', '#10b981'], borderWidth: 0, cutout: '82%' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function saveCurrentTasks() {
+            const columns = ['todo', 'progress', 'done'];
+            taskDatabase[selectedDate] = columns.map(colId => {
+                return Array.from(document.querySelectorAll(`#${colId} .task-list .task-card`))
+                    .filter(card => card.id !== 'instruction-card')
+                    .map(card => card.querySelector('p').innerText);
+            });
+        }
+
+        function loadDateTasks(date) {
+            document.querySelectorAll('.task-list').forEach(l => {
+                const instr = l.querySelector('#instruction-card');
+                l.innerHTML = '';
+                if(instr) l.appendChild(instr);
+            });
+            if (taskDatabase[date]) {
+                document.getElementById('instruction-card')?.remove();
+                const cols = ['todo', 'progress', 'done'];
+                taskDatabase[date].forEach((tasks, i) => tasks.forEach(t => createCard(cols[i], t)));
+            }
+            updateMetrics();
+        }
+
+        function createCard(colId, text) {
+            const card = document.createElement('div');
+            card.id = 'task-' + Math.random().toString(36).substr(2, 9);
+            card.className = 'task-card p-5 shadow-xl';
+            card.draggable = true;
+            card.ondragstart = drag;
+            card.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-[8px] font-bold text-gray-500 uppercase tracking-tighter">${selectedDate.split('-')[2]} Jan</span>
+                    <button onclick="this.closest('.task-card').remove(); updateMetrics(); saveCurrentTasks();" class="text-gray-700 hover:text-pink-400">&times;</button>
+                </div>
+                <p class="text-sm text-gray-200 font-medium leading-relaxed">${text}</p>`;
+            document.querySelector(`#${colId} .task-list`).appendChild(card);
+        }
+
+        function addTask() {
+            const input = document.getElementById('taskInput');
+            if (!input.value) return;
+            document.getElementById('instruction-card')?.remove();
+            createCard('todo', input.value);
+            input.value = '';
+            updateMetrics();
+            saveCurrentTasks();
+        }
+
+        function allowDrop(ev) { ev.preventDefault(); ev.currentTarget.classList.add('drag-over'); }
+        function clearStyles(ev) { ev.currentTarget.classList.remove('drag-over'); }
+        function drag(ev) { ev.dataTransfer.setData("cardId", ev.target.id); ev.target.classList.add('dragging'); }
+        function drop(ev) {
+            ev.preventDefault();
+            const col = ev.currentTarget;
+            col.classList.remove('drag-over');
+            const cardId = ev.dataTransfer.getData("cardId");
+            const card = document.getElementById(cardId);
+            card.classList.remove('dragging');
+            col.querySelector('.task-list').appendChild(card);
+            updateMetrics();
+            saveCurrentTasks();
+        }
+
+        function updateMetrics() {
+            const todo = document.querySelector('#todo .task-list').children.length;
+            const prog = document.querySelector('#progress .task-list').children.length;
+            const done = document.querySelector('#done .task-list').children.length;
+            
+            document.getElementById('count-todo').innerText = todo;
+            document.getElementById('count-progress').innerText = prog;
+            document.getElementById('count-done').innerText = done;
+
+            const total = todo + prog + done;
+            document.getElementById('statsText').innerText = `${total === 0 ? 0 : Math.round((done/total)*100)}%`;
+            myChart.data.datasets[0].data = [todo || (prog+done===0?1:0), prog, done];
+            myChart.update();
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
+
